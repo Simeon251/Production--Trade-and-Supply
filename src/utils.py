@@ -1,136 +1,62 @@
-"""
-Utility functions for data analysis and visualization.
+from __future__ import annotations
 
-Provides helper functions for:
-- Saving plots
-- Performance visualization
-- Summary statistics
-"""
+from pathlib import Path
+import logging
 
 import matplotlib.pyplot as plt
 import pandas as pd
-import numpy as np
-import logging
 
 logger = logging.getLogger(__name__)
 
 
-def save_plot(fig, filepath):
-    """
-    Save matplotlib figure to file.
-    
-    Args:
-        fig: matplotlib Figure object
-        filepath (str): Path to save figure (PNG recommended)
-    
-    Returns:
-        None
-    """
-    try:
-        fig.savefig(filepath, dpi=300, bbox_inches="tight")
-        plt.close(fig)
-        logger.info(f"Plot saved to {filepath}")
-    except Exception as e:
-        logger.error(f"Error saving plot: {e}")
-        raise
+def ensure_directory(path: str | Path) -> Path:
+    """Create a directory if needed and return it as a ``Path``."""
+    directory = Path(path)
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
 
 
-def plot_model_comparison(metrics_df, title="Model Comparison", metric_column="R2 Score"):
-    """
-    Create bar plot comparing model performance.
-    
-    Args:
-        metrics_df (pd.DataFrame): DataFrame with model names and metrics
-        title (str): Plot title
-        metric_column (str): Column name to plot
-    
-    Returns:
-        matplotlib.Figure: Figure object
-    """
+def save_plot(fig: plt.Figure, filepath: str | Path) -> Path:
+    """Save a matplotlib figure and close it to free memory."""
+    target_path = Path(filepath)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(target_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    logger.info("Saved figure to %s", target_path)
+    return target_path
+
+
+def plot_model_comparison(
+    metrics_df: pd.DataFrame,
+    title: str = "Model Comparison",
+    metric_column: str = "R2 Score",
+) -> plt.Figure:
+    """Generate a simple bar chart for side-by-side model comparison."""
     fig, ax = plt.subplots(figsize=(10, 6))
-    
-    models = metrics_df['Model']
-    values = metrics_df[metric_column]
-    
-    bars = ax.bar(models, values, alpha=0.7, edgecolor='black', color='steelblue')
-    
-    ax.set_ylabel(metric_column, fontsize=12, fontweight='bold')
-    ax.set_title(title, fontsize=14, fontweight='bold')
-    ax.set_ylim([0, 1.05])
-    ax.grid(axis='y', alpha=0.3)
-    
-    # Add value labels on bars
+    bars = ax.bar(
+        metrics_df["Model"],
+        metrics_df[metric_column],
+        alpha=0.8,
+        edgecolor="black",
+        color="#2F5D8A",
+    )
+    ax.set_ylabel(metric_column)
+    ax.set_title(title)
+    ax.grid(axis="y", alpha=0.3)
+
     for bar in bars:
         height = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2., height,
-                f'{height:.3f}', ha='center', va='bottom', fontsize=10)
-    
-    plt.tight_layout()
+        ax.text(bar.get_x() + bar.get_width() / 2, height, f"{height:.3f}", ha="center", va="bottom")
+
+    fig.tight_layout()
     return fig
 
 
-def print_hypothesis_summary(hypothesis_name, decision, score, threshold, problem_type="regression"):
-    """
-    Print formatted hypothesis decision summary.
-    
-    Args:
-        hypothesis_name (str): Name of hypothesis
-        decision (str): "ACCEPT H₁", "MARGINAL", or "REJECT H₁"
-        score (float): Best model performance score
-        threshold (float): Decision threshold
-        problem_type (str): "regression" or "classification"
-    
-    Returns:
-        None
-    """
-    metric_name = "R² Score" if problem_type == "regression" else "Accuracy"
-    
-    print("\n" + "=" * 70)
-    print(f"HYPOTHESIS: {hypothesis_name}")
-    print("=" * 70)
-    print(f"\n{metric_name}: {score:.4f}")
-    print(f"Threshold: {threshold:.2f}")
-    print(f"Decision: {decision}")
-    
-    if decision == "ACCEPT H₁":
-        confidence = "HIGH"
-        print(f"\n✓ Confidence: {confidence}")
-        print(f"  Strong evidence supports the alternative hypothesis")
-    elif decision == "MARGINAL":
-        confidence = "MODERATE"
-        print(f"\n? Confidence: {confidence}")
-        print(f"  Evidence is mixed - results near decision boundary")
-    else:
-        confidence = "LOW"
-        print(f"\n✗ Confidence: {confidence}")
-        print(f"  Insufficient evidence to reject null hypothesis")
-    
-    print()
-
-
-def create_evaluation_report(model_name, metrics_dict, cv_mean=None, cv_std=None):
-    """
-    Create formatted evaluation report for a model.
-    
-    Args:
-        model_name (str): Name of model
-        metrics_dict (dict): Dictionary of metrics
-        cv_mean (float, optional): Cross-validation mean score
-        cv_std (float, optional): Cross-validation std dev
-    
-    Returns:
-        str: Formatted report
-    """
-    report = f"\n{'Model: ' + model_name:─^50}\n"
-    
-    report += "\nTest Set Metrics:\n"
+def create_evaluation_report(model_name: str, metrics_dict: dict[str, float], cv_mean: float | None = None, cv_std: float | None = None) -> str:
+    """Build a compact plain-text performance summary for one model."""
+    lines = [f"Model: {model_name}", "Test Metrics:"]
     for metric_name, value in metrics_dict.items():
-        if isinstance(value, float):
-            report += f"  {metric_name:.<30} {value:.4f}\n"
-    
+        lines.append(f"  {metric_name}: {value:.4f}")
     if cv_mean is not None and cv_std is not None:
-        report += f"\nCross-Validation:\n"
-        report += f"  Mean Score:..................... {cv_mean:.4f}\n"
-        report += f"  Std Deviation:.................. {cv_std:.4f}\n"
-    
-    return report
+        lines.append(f"Cross-validation: {cv_mean:.4f} +/- {cv_std:.4f}")
+    return "\n".join(lines)

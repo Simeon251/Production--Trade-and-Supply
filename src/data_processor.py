@@ -1,148 +1,111 @@
-import pandas as pd
-import numpy as np
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 import logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+import pandas as pd
+
 logger = logging.getLogger(__name__)
 
 
+@dataclass
 class DataProcessor:
-    """
-    Handles data loading, cleaning, and transformation for the UN energy dataset.
-    
-    This class provides methods to:
-    - Load and parse CSV data with custom headers
-    - Perform data type conversions and cleaning
-    - Handle missing values and outliers
-    - Transform data from long to wide format
-    
-    Attributes:
-        filepath (str): Path to the CSV file
-        df (pd.DataFrame): Current working dataframe
-        original_df (pd.DataFrame): Original loaded data for reference
-        missing_value_stats (dict): Statistics about missing values during cleaning
-    """
+    """Load and reshape the UN energy dataset into analysis-ready tabular data."""
 
-    def __init__(self, filepath):
-        """
-        Initialize DataProcessor.
-        
-        Args:
-            filepath (str): Path to the UN energy CSV file
-        """
-        self.filepath = filepath
-        self.df = None
-        self.original_df = None
-        self.missing_value_stats = {}
+    filepath: str | Path
+    df: pd.DataFrame | None = field(default=None, init=False)
+    original_df: pd.DataFrame | None = field(default=None, init=False)
+    missing_value_stats: dict[str, Any] = field(default_factory=dict, init=False)
 
-    def load_data(self):
-        """
-        Load CSV data and handle custom header structure.
-        
-        The first row contains the actual column names.
-        Renames and selects essential columns for analysis.
-        
-        Returns:
-            pd.DataFrame: Loaded data with renamed columns
-            
-        Raises:
-            FileNotFoundError: If filepath does not exist
-            pd.errors.ParserError: If CSV is malformed
-        """
-        try:
-            raw = pd.read_csv(self.filepath)
-            logger.info(f"Loaded {len(raw)} rows from {self.filepath}")
-        except FileNotFoundError:
-            logger.error(f"File not found: {self.filepath}")
-            raise
-        except pd.errors.ParserError as e:
-            logger.error(f"Error parsing CSV: {e}")
-            raise
+    def load_data(self) -> pd.DataFrame:
+        """Load the raw CSV and normalize the header layout used by the source file."""
+        path = Path(self.filepath)
+        if not path.exists():
+            raise FileNotFoundError(f"Dataset not found: {path}")
 
-        # First row contains the TRUE header
+        raw = pd.read_csv(path)
+        if raw.empty:
+            raise ValueError(f"Dataset is empty: {path}")
+
         header = raw.iloc[0].tolist()
         df = raw.iloc[1:].copy()
         df.columns = header
 
-        # Standardize column names
-        df = df.rename(columns={
-            "Region/Country/Area": "RegionCode",
-            header[1]: "Region",
-            "Year": "Year",
-            "Series": "Series",
-            "Value": "Value"
-        })
+        required_columns = ["Region/Country/Area", "Year", "Series", "Value"]
+        missing_columns = [column for column in required_columns if column not in df.columns]
+        if missing_columns:
+            raise ValueError(
+                "Dataset header is missing required columns: "
+                + ", ".join(sorted(missing_columns))
+            )
 
-        df = df[["RegionCode", "Region", "Year", "Series", "Value"]]
-        self.original_df = df.copy()
-        self.df = df.copy()
-        
-        logger.info(f"Data loaded successfully with {len(df)} records")
-        return df
+        renamed = df.rename(
+            columns={
+                "Region/Country/Area": "RegionCode",
+                header[1]: "Region",
+                "Year": "Year",
+                "Series": "Series",
+                "Value": "Value",
+            }
+        )
 
-    def clean(self):
-        """
-        Clean data by converting types, handling missing values, and pivoting.
-        
-        Steps:
-        1. Convert Year and Value to numeric types
-        2. Remove rows with missing critical values
-        3. Pivot from long to wide format
-        
-        Returns:
-            pd.DataFrame: Cleaned data in wide format
-        """
+        self.original_df = renamed[["RegionCode", "Region", "Year", "Series", "Value"]].copy()
+        self.df = self.original_df.copy()
+
+        logger.info("Loaded %s records from %s", len(self.df), path)
+        return self.df.copy()
+
+    def clean(self) -> pd.DataFrame:
+        """Convert types, drop incomplete rows, and pivot to a wide modeling table."""
         if self.df is None:
-            logger.error("No data to clean. Call load_data() first.")
             raise ValueError("Data not loaded. Call load_data() first.")
-            
+
         df = self.df.copy()
-        
-        # Record initial missing values
-        initial_missing = df.isnull().sum().sum()
-        
-        # Convert Year and Value to numeric
+        initial_rows = len(df)
+        initial_missing = int(df.isna().sum().sum())
+
         df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
-        df["Value"] = df["Value"].astype(str).str.replace(",", "", regex=False)
-        df["Value"] = pd.to_numeric(df["Value"], errors="coerce")
+        df["Value"] = pd.to_numeric(
+            df["Value"].astype(str).str.replace(",", "", regex=False),
+            errors="coerce",
+        )
+        df["Region"] = df["Region"].astype(str).str.strip()
+        df["Series"] = df["Series"].astype(str).str.strip()
 
-        # Remove rows with missing critical values
         df = df.dropna(subset=["Year", "Value", "Series", "Region"])
-        
-        rows_removed = len(self.df) - len(df)
-        logger.info(f"Removed {rows_removed} rows with missing values")
-        self.missing_value_stats["rows_removed"] = rows_removed
-        self.missing_value_stats["initial_missing"] = initial_missing
+        df = df[df["Region"].ne("")]
+        df["Year"] = df["Year"].astype(int)
 
-        # Pivot long → wide format
-        df_wide = df.pivot_table(
-            index=["Region", "Year"],
-            columns="Series",
-            values="Value",
-            aggfunc="first"
-        ).reset_index()
-
+        df_wide = (
+            df.pivot_table(
+                index=["Region", "Year"],
+                columns="Series",
+                values="Value",
+                aggfunc="first",
+            )
+            .reset_index()
+            .sort_values(["Region", "Year"])
+            .reset_index(drop=True)
+        )
         df_wide.columns.name = None
-        self.df = df_wide
-        
-        logger.info(f"Pivoted data to wide format: {df_wide.shape[0]} rows, {df_wide.shape[1]} columns")
-        return df_wide
 
-    def get_processed_data(self):
-        """
-        Retrieve the current working dataframe.
-        
-        Returns:
-            pd.DataFrame: Processed data
-        """
-        return self.df
-    
-    def get_summary_stats(self):
-        """
-        Return summary statistics about the data cleaning process.
-        
-        Returns:
-            dict: Statistics including rows removed and missing value counts
-        """
-        return self.missing_value_stats
+        self.missing_value_stats = {
+            "initial_rows": initial_rows,
+            "rows_removed": initial_rows - len(df),
+            "initial_missing_values": initial_missing,
+            "final_shape": df_wide.shape,
+        }
+        self.df = df_wide
+
+        logger.info("Prepared wide dataset with shape %s", df_wide.shape)
+        return df_wide.copy()
+
+    def get_processed_data(self) -> pd.DataFrame | None:
+        """Return the latest in-memory dataframe."""
+        return None if self.df is None else self.df.copy()
+
+    def get_summary_stats(self) -> dict[str, Any]:
+        """Return metadata collected during cleaning."""
+        return dict(self.missing_value_stats)

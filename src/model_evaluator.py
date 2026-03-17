@@ -1,261 +1,132 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+import logging
+
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
-    mean_squared_error,
-    mean_absolute_error,
-    r2_score,
     accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
     confusion_matrix,
+    f1_score,
+    mean_absolute_error,
+    mean_squared_error,
+    precision_score,
+    r2_score,
+    recall_score,
     roc_auc_score,
-    roc_curve
 )
 from sklearn.model_selection import cross_val_score
-import logging
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass
 class ModelEvaluator:
-    """
-    Comprehensive model evaluation and comparison tool.
-    
-    Provides methods for:
-    - Regression metrics (RMSE, MAE, R2, MAPE)
-    - Classification metrics (Accuracy, Precision, Recall, F1)
-    - Cross-validation evaluation
-    - Feature importance extraction
-    - Model comparison and visualization
-    
-    Attributes:
-        model: Trained scikit-learn model instance
-        evaluation_results (dict): Storage for evaluation metrics
-    """
+    """Evaluate fitted models and store the resulting metrics."""
 
-    def __init__(self, model):
-        """
-        Initialize ModelEvaluator.
-        
-        Args:
-            model: Fitted scikit-learn model
-        """
-        self.model = model
-        self.evaluation_results = {}
-        logger.info(f"ModelEvaluator initialized with model: {type(model).__name__}")
+    model: Any
+    evaluation_results: dict[str, Any] = field(default_factory=dict, init=False)
 
-    # ---------------------------
-    # Regression evaluation
-    # ---------------------------
-    def regression(self, y_true, y_pred):
-        """
-        Compute comprehensive regression metrics.
-        
-        Metrics:
-        - RMSE: Root Mean Squared Error (penalizes large errors more)
-        - MAE: Mean Absolute Error (interpretable in original units)
-        - R2: Coefficient of determination (% variance explained)
-        - MAPE: Mean Absolute Percentage Error (scale-independent)
-        
-        Args:
-            y_true (array-like): True target values
-            y_pred (array-like): Predicted values
-        
-        Returns:
-            dict: Dictionary with regression metrics
-        """
-        # Handle division by zero for MAPE
+    def _unwrap_model(self) -> Any:
+        """Return the final estimator when a scikit-learn Pipeline is supplied."""
+        if hasattr(self.model, "named_steps") and "model" in self.model.named_steps:
+            return self.model.named_steps["model"]
+        return self.model
+
+    def regression(self, y_true: Any, y_pred: Any) -> dict[str, float]:
+        """Compute standard regression metrics."""
+        y_true = np.asarray(y_true)
+        y_pred = np.asarray(y_pred)
+
         non_zero_mask = y_true != 0
-        if non_zero_mask.sum() > 0:
-            mape = np.mean(np.abs((y_true[non_zero_mask] - y_pred[non_zero_mask]) / 
-                                   y_true[non_zero_mask])) * 100
-        else:
-            mape = np.nan
-        
+        mape = (
+            float(np.mean(np.abs((y_true[non_zero_mask] - y_pred[non_zero_mask]) / y_true[non_zero_mask])) * 100)
+            if np.any(non_zero_mask)
+            else float("nan")
+        )
+
         metrics = {
-            "RMSE": np.sqrt(mean_squared_error(y_true, y_pred)),
-            "MAE": mean_absolute_error(y_true, y_pred),
-            "R2 Score": r2_score(y_true, y_pred),
-            "MAPE": mape
+            "RMSE": float(np.sqrt(mean_squared_error(y_true, y_pred))),
+            "MAE": float(mean_absolute_error(y_true, y_pred)),
+            "R2 Score": float(r2_score(y_true, y_pred)),
+            "MAPE": mape,
         }
-        
         self.evaluation_results["regression"] = metrics
-        logger.info(f"Regression metrics - R²: {metrics['R2 Score']:.4f}, RMSE: {metrics['RMSE']:.4f}")
-        
         return metrics
 
-    # ---------------------------
-    # Classification evaluation
-    # ---------------------------
-    def classification(self, y_true, y_pred):
-        """
-        Compute comprehensive classification metrics.
-        
-        Metrics:
-        - Accuracy: Overall correctness
-        - Precision: True positives / predicted positives
-        - Recall: True positives / actual positives
-        - F1: Harmonic mean of precision and recall
-        
-        Args:
-            y_true (array-like): True labels
-            y_pred (array-like): Predicted labels
-        
-        Returns:
-            dict: Dictionary with classification metrics
-        """
+    def classification(
+        self,
+        y_true: Any,
+        y_pred: Any,
+        y_score: Any = None,
+    ) -> dict[str, float]:
+        """Compute common binary classification metrics."""
         metrics = {
-            "Accuracy": accuracy_score(y_true, y_pred),
-            "Precision": precision_score(y_true, y_pred, zero_division=0),
-            "Recall": recall_score(y_true, y_pred, zero_division=0),
-            "F1 Score": f1_score(y_true, y_pred, zero_division=0),
+            "Accuracy": float(accuracy_score(y_true, y_pred)),
+            "Precision": float(precision_score(y_true, y_pred, zero_division=0)),
+            "Recall": float(recall_score(y_true, y_pred, zero_division=0)),
+            "F1 Score": float(f1_score(y_true, y_pred, zero_division=0)),
         }
-        
+        if y_score is not None:
+            metrics["ROC AUC"] = float(roc_auc_score(y_true, y_score))
+
         self.evaluation_results["classification"] = metrics
-        logger.info(f"Classification metrics - Accuracy: {metrics['Accuracy']:.4f}, F1: {metrics['F1 Score']:.4f}")
-        
         return metrics
 
-    # ---------------------------
-    # Cross-validation
-    # ---------------------------
-    def cross_val(self, X, y, cv=5, scoring="r2"):
-        """
-        Perform k-fold cross-validation to assess model generalization.
-        
-        Args:
-            X (array-like): Feature matrix
-            y (array-like): Target variable
-            cv (int): Number of folds (default: 5)
-            scoring (str): Scoring metric (e.g., "r2", "accuracy", "f1")
-        
-        Returns:
-            tuple: (mean_score, std_score) - Mean and standard deviation of CV scores
-        """
+    def cross_val(self, X: Any, y: Any, cv: int = 5, scoring: str = "r2") -> tuple[float, float]:
+        """Run cross-validation for the supplied model and scoring metric."""
         scores = cross_val_score(self.model, X, y, cv=cv, scoring=scoring)
-        mean_score = scores.mean()
-        std_score = scores.std()
-        
+        mean_score = float(scores.mean())
+        std_score = float(scores.std())
         self.evaluation_results["cross_val"] = {
             "scoring": scoring,
             "cv_folds": cv,
             "mean": mean_score,
             "std": std_score,
-            "all_scores": scores
+            "all_scores": scores,
         }
-        
-        logger.info(f"Cross-validation ({scoring}): {mean_score:.4f} ± {std_score:.4f}")
-        
         return mean_score, std_score
 
-    # ---------------------------
-    # Feature importance
-    # ---------------------------
-    def get_feature_importance(self, feature_names=None):
-        """
-        Extract feature importance from tree-based and linear models.
-        
-        Supports:
-        - Tree-based models (RandomForest, GradientBoosting)
-        - Linear models (coefficients)
-        
-        Args:
-            feature_names (list, optional): Names of features for readability
-        
-        Returns:
-            pd.DataFrame: Features ranked by importance
-            
-        Raises:
-            AttributeError: If model doesn't support feature importance
-        """
-        try:
-            # Tree-based models
-            if hasattr(self.model, 'feature_importances_'):
-                importances = self.model.feature_importances_
-                importance_type = "tree-based"
-            # Linear models
-            elif hasattr(self.model, 'coef_'):
-                importances = np.abs(self.model.coef_).flatten()
-                importance_type = "coefficient"
-            else:
-                logger.warning(f"Model {type(self.model).__name__} does not support feature importance")
-                return None
-            
-            if feature_names is None:
-                feature_names = [f"Feature_{i}" for i in range(len(importances))]
-            
-            importance_df = pd.DataFrame({
-                'feature': feature_names,
-                'importance': importances
-            }).sort_values('importance', ascending=False)
-            
-            logger.info(f"Feature importance extracted ({importance_type})")
-            return importance_df
-            
-        except Exception as e:
-            logger.error(f"Error extracting feature importance: {e}")
-            raise
+    def get_feature_importance(self, feature_names: list[str] | None = None) -> pd.DataFrame | None:
+        """Return feature importance for compatible models."""
+        estimator = self._unwrap_model()
+        if hasattr(estimator, "feature_importances_"):
+            importances = np.asarray(estimator.feature_importances_)
+        elif hasattr(estimator, "coef_"):
+            importances = np.abs(np.asarray(estimator.coef_)).ravel()
+        else:
+            return None
 
-    # ---------------------------
-    # Model comparison
-    # ---------------------------
-    def compare_models(self, models_dict, X_test, y_test, problem_type="regression"):
-        """
-        Compare multiple models on the same test set.
-        
-        Args:
-            models_dict (dict): Dictionary of {model_name: fitted_model}
-            X_test (array-like): Test features
-            y_test (array-like): Test target
-            problem_type (str): "regression" or "classification"
-        
-        Returns:
-            pd.DataFrame: Comparison table with metrics for each model
-        """
-        comparison_results = []
-        
+        if feature_names is None:
+            feature_names = [f"feature_{index}" for index in range(len(importances))]
+
+        return (
+            pd.DataFrame({"feature": feature_names, "importance": importances})
+            .sort_values("importance", ascending=False)
+            .reset_index(drop=True)
+        )
+
+    def compare_models(self, models_dict: dict[str, Any], X_test: Any, y_test: Any, problem_type: str) -> pd.DataFrame:
+        """Compare multiple fitted models against the same holdout set."""
+        comparison_results: list[dict[str, Any]] = []
+
         for model_name, model in models_dict.items():
             y_pred = model.predict(X_test)
-            
-            if problem_type == "regression":
-                metrics = self.regression(y_test, y_pred)
-                comparison_results.append({
-                    "Model": model_name,
-                    **metrics
-                })
-            elif problem_type == "classification":
-                metrics = self.classification(y_test, y_pred)
-                comparison_results.append({
-                    "Model": model_name,
-                    **metrics
-                })
-        
-        comparison_df = pd.DataFrame(comparison_results)
-        logger.info(f"Model comparison complete for {len(models_dict)} models")
-        
-        return comparison_df
+            if problem_type == "classification":
+                row = {"Model": model_name, **self.classification(y_test, y_pred)}
+            else:
+                row = {"Model": model_name, **self.regression(y_test, y_pred)}
+            comparison_results.append(row)
 
-    def get_confusion_matrix(self, y_true, y_pred):
-        """
-        Compute confusion matrix for classification problems.
-        
-        Args:
-            y_true (array-like): True labels
-            y_pred (array-like): Predicted labels
-        
-        Returns:
-            np.ndarray: Confusion matrix
-        """
-        cm = confusion_matrix(y_true, y_pred)
-        logger.info(f"Confusion matrix shape: {cm.shape}")
-        return cm
+        return pd.DataFrame(comparison_results)
 
-    def get_evaluation_summary(self):
-        """
-        Return all evaluation results computed so far.
-        
-        Returns:
-            dict: Summary of all evaluation metrics
-        """
-        return self.evaluation_results
+    @staticmethod
+    def get_confusion_matrix(y_true: Any, y_pred: Any) -> Any:
+        """Compute a confusion matrix for classification tasks."""
+        return confusion_matrix(y_true, y_pred)
+
+    def get_evaluation_summary(self) -> dict[str, Any]:
+        """Return all metrics computed by this evaluator instance."""
+        return dict(self.evaluation_results)
