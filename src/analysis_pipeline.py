@@ -11,7 +11,7 @@ from sklearn.base import clone
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import classification_report
-from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -27,13 +27,13 @@ logger = logging.getLogger(__name__)
 class AnalysisPipeline:
     """Run the full energy analysis workflow with reproducible holdout evaluation."""
 
-    data_path: str | Path
+    data_url: str | None = None
     output_dir: str | Path = "results"
     random_state: int = 42
 
-    def load_modeling_frame(self) -> tuple[pd.DataFrame, dict[str, str]]:
+    def load_modeling_frame(self) -> tuple[pd.DataFrame, dict[str, str], str | None]:
         """Load the dataset, clean it, and derive project features."""
-        processor = DataProcessor(self.data_path)
+        processor = DataProcessor(self.data_url)
         processor.load_data()
         wide_df = processor.clean()
 
@@ -44,11 +44,11 @@ class AnalysisPipeline:
         if missing:
             raise ValueError(f"Required project columns could not be detected: {', '.join(missing)}")
 
-        return features_df, {key: value for key, value in columns.items() if value is not None}
+        return features_df, {key: value for key, value in columns.items() if value is not None}, processor.resolved_source_url
 
     def run(self) -> dict[str, Any]:
         """Execute all hypotheses and write a machine-readable summary to disk."""
-        df, columns = self.load_modeling_frame()
+        df, columns, resolved_source_url = self.load_modeling_frame()
         output_dir = ensure_directory(self.output_dir)
 
         results = {
@@ -56,6 +56,7 @@ class AnalysisPipeline:
                 "rows": len(df),
                 "columns": list(df.columns),
                 "random_state": self.random_state,
+                "data_url": resolved_source_url,
             },
             "hypothesis_1": self._run_h1(df, columns),
             "hypothesis_2": self._run_h2(df, columns),

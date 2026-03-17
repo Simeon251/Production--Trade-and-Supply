@@ -1,32 +1,13 @@
 # Energy Production, Trade, and Supply Analysis
 
-Production-grade predictive analytics workflow built on the United Nations energy production, trade, and supply dataset. The project packages the original coursework into a cleaner, reproducible repository with a proper command-line entrypoint, safer model evaluation, and lightweight automated tests.
+Predictive analytics workflow for the United Nations energy production, trade, and supply dataset. The project now pulls fresh data from the official UN remote endpoint at runtime instead of relying on a committed local CSV snapshot.
 
 ## What Changed
 
-- Replaced notebook-only execution with a reusable Python pipeline in `src/analysis_pipeline.py`.
-- Fixed train/test leakage by fitting models on training folds instead of the full dataset.
-- Added packaging metadata in `pyproject.toml`.
-- Added automated regression checks in `tests/test_project.py`.
-- Added repo hygiene with `.gitignore`.
-
-## Project Structure
-
-```text
-.
-|-- dataset/
-|-- notebooks/
-|-- results/
-|-- src/
-|   |-- analysis_pipeline.py
-|   |-- data_processor.py
-|   |-- feature_engineer.py
-|   |-- model_evaluator.py
-|   `-- model_trainer.py
-|-- tests/
-|-- pyproject.toml
-`-- run_analysis.py
-```
+- Fetches the source dataset over HTTP from the official UN data endpoint.
+- Keeps the cleaned modeling pipeline and holdout-based evaluation flow.
+- Writes a machine-readable summary to `results/analysis_summary.json`.
+- Uses mocked network responses in tests so the test suite stays fast and deterministic.
 
 ## Quick Start
 
@@ -35,17 +16,13 @@ python -m pip install -r requirements.txt
 python run_analysis.py
 ```
 
-The pipeline writes a machine-readable summary to `results/analysis_summary.json` and prints the best model for each hypothesis.
+Optionally override the source URL:
 
-## Hypotheses Covered
-
-1. Total energy supply can be predicted from production, imports, and stock changes.
-2. Importer versus exporter status can be classified from energy balance indicators.
-3. Per-capita energy supply can be predicted from supply and production patterns.
+```bash
+python run_analysis.py --data-url "https://data.un.org/_Docs/SYB/CSV/SYB68_263_202511_Production%2C%20Trade%20and%20Supply%20of%20Energy.csv"
+```
 
 ## Development
-
-Run the local regression checks with:
 
 ```bash
 python -m unittest discover -s tests
@@ -53,5 +30,5 @@ python -m unittest discover -s tests
 
 ## Notes
 
-- The notebook is retained for exploration, but the CLI pipeline is now the supported execution path.
-- Generated outputs under `results/` are intentionally ignored so the repository stays clean.
+- The pipeline tries the current official UN CSV URL first and falls back to the previous official release if needed.
+- You can also set `UN_ENERGY_DATA_URL` to point at a different compatible remote source.

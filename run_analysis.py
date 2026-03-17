@@ -10,9 +10,9 @@ from src.analysis_pipeline import AnalysisPipeline
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the energy analytics workflow.")
     parser.add_argument(
-        "--data",
-        default="dataset/Production,Trade and Supply of Energy.csv",
-        help="Path to the raw CSV dataset.",
+        "--data-url",
+        default=None,
+        help="Optional override for the remote UN dataset URL.",
     )
     parser.add_argument(
         "--output",
@@ -25,7 +25,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = parse_args()
-    pipeline = AnalysisPipeline(data_path=Path(args.data), output_dir=Path(args.output))
+    pipeline = AnalysisPipeline(data_url=args.data_url, output_dir=Path(args.output))
     results = pipeline.run()
 
     for hypothesis_key in ["hypothesis_1", "hypothesis_2", "hypothesis_3"]:

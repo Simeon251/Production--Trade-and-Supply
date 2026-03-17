@@ -1,33 +1,71 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
+from io import StringIO
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 import logging
+import os
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_DATA_URLS = [
+    "https://data.un.org/_Docs/SYB/CSV/SYB68_263_202511_Production%2C%20Trade%20and%20Supply%20of%20Energy.csv",
+    "https://data.un.org/_Docs/SYB/CSV/SYB67_263_202411_Production%2C%20Trade%20and%20Supply%20of%20Energy.csv",
+]
+
 
 @dataclass
 class DataProcessor:
-    """Load and reshape the UN energy dataset into analysis-ready tabular data."""
+    """Fetch and reshape the UN energy dataset into analysis-ready tabular data."""
 
-    filepath: str | Path
+    source_url: str | None = None
+    timeout_seconds: int = 60
     df: pd.DataFrame | None = field(default=None, init=False)
     original_df: pd.DataFrame | None = field(default=None, init=False)
     missing_value_stats: dict[str, Any] = field(default_factory=dict, init=False)
+    resolved_source_url: str | None = field(default=None, init=False)
+
+    def _candidate_urls(self) -> list[str]:
+        """Return the remote URLs to try, preferring explicit or environment overrides."""
+        if self.source_url:
+            return [self.source_url]
+
+        env_url = os.getenv("UN_ENERGY_DATA_URL")
+        if env_url:
+            return [env_url]
+
+        return list(DEFAULT_DATA_URLS)
+
+    def _download_csv(self) -> pd.DataFrame:
+        """Download the raw CSV from the first working official UN endpoint."""
+        last_error: Exception | None = None
+
+        for url in self._candidate_urls():
+            try:
+                with urlopen(url, timeout=self.timeout_seconds) as response:
+                    raw_bytes = response.read()
+                try:
+                    payload = raw_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    payload = raw_bytes.decode("latin-1")
+                self.resolved_source_url = url
+                logger.info("Downloaded dataset from %s", url)
+                return pd.read_csv(StringIO(payload))
+            except (HTTPError, URLError, TimeoutError, UnicodeDecodeError) as exc:
+                last_error = exc
+                logger.warning("Failed to download dataset from %s: %s", url, exc)
+
+        raise RuntimeError("Unable to download the UN energy dataset from the configured URLs") from last_error
 
     def load_data(self) -> pd.DataFrame:
-        """Load the raw CSV and normalize the header layout used by the source file."""
-        path = Path(self.filepath)
-        if not path.exists():
-            raise FileNotFoundError(f"Dataset not found: {path}")
-
-        raw = pd.read_csv(path)
+        """Load the raw CSV and normalize the source header layout."""
+        raw = self._download_csv()
         if raw.empty:
-            raise ValueError(f"Dataset is empty: {path}")
+            raise ValueError("Downloaded dataset is empty")
 
         header = raw.iloc[0].tolist()
         df = raw.iloc[1:].copy()
@@ -53,8 +91,7 @@ class DataProcessor:
 
         self.original_df = renamed[["RegionCode", "Region", "Year", "Series", "Value"]].copy()
         self.df = self.original_df.copy()
-
-        logger.info("Loaded %s records from %s", len(self.df), path)
+        logger.info("Loaded %s records from remote source", len(self.df))
         return self.df.copy()
 
     def clean(self) -> pd.DataFrame:
@@ -96,6 +133,7 @@ class DataProcessor:
             "rows_removed": initial_rows - len(df),
             "initial_missing_values": initial_missing,
             "final_shape": df_wide.shape,
+            "source_url": self.resolved_source_url,
         }
         self.df = df_wide
 
