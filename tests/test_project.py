@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.analysis_pipeline import AnalysisPipeline
-from src.business_dashboard import BusinessDashboardService
+from src.business_dashboard import AGGREGATE_REGION_NAMES, BusinessDashboardService, WORLD_ENTITY_NAME
 from src.data_processor import DataProcessor
 from src.feature_engineer import FeatureEngineer
 
@@ -118,10 +118,39 @@ class DashboardServiceTests(unittest.TestCase):
         mock_urlopen.return_value = MockHttpResponse(SAMPLE_RAW_CSV)
         service = BusinessDashboardService('https://example.com/energy.csv')
         df, columns, _ = service.load_data()
-        snapshot = service.build_country_snapshot(df, columns, 'Afghanistan')
-        forecast = service.forecast_country_metric(df, 'Afghanistan', 'Total Supply', columns['supply'], horizon=3)
+        snapshot = service.build_entity_snapshot(df, columns, 'Afghanistan')
+        forecast = service.forecast_entity_metric(df, 'Afghanistan', 'Total Supply', columns['supply'], horizon=3)
         world = service.build_world_snapshot(df, columns)
 
-        self.assertEqual(snapshot['country'], 'Afghanistan')
+        self.assertEqual(snapshot['entity'], 'Afghanistan')
         self.assertIn('Forecast', forecast['Type'].values)
         self.assertEqual(world['countries_covered'], 2)
+
+    @patch('src.data_processor.urlopen')
+    def test_entity_classification_separates_countries_from_aggregates(self, mock_urlopen) -> None:
+        aggregate_rows = (
+            '1,"Total, all countries or areas",2015,Primary energy production (petajoules),100,,UN\n'
+            '1,"Total, all countries or areas",2015,Net imports [Imports - Exports - Bunkers] (petajoules),0,,UN\n'
+            '1,"Total, all countries or areas",2015,Changes in stocks (petajoules),0,,UN\n'
+            '1,"Total, all countries or areas",2015,Supply per capita (gigajoules),50,,UN\n'
+            '1,"Total, all countries or areas",2015,Total supply (petajoules),100,,UN\n'
+            '2,Africa,2015,Primary energy production (petajoules),40,,UN\n'
+            '2,Africa,2015,Net imports [Imports - Exports - Bunkers] (petajoules),5,,UN\n'
+            '2,Africa,2015,Changes in stocks (petajoules),0,,UN\n'
+            '2,Africa,2015,Supply per capita (gigajoules),20,,UN\n'
+            '2,Africa,2015,Total supply (petajoules),45,,UN\n'
+        )
+        raw_csv = SAMPLE_RAW_CSV + aggregate_rows
+        mock_urlopen.return_value = MockHttpResponse(raw_csv)
+        service = BusinessDashboardService('https://example.com/energy.csv')
+        df, columns, _ = service.load_data()
+
+        countries = service.get_entities(df, 'Country')
+        aggregates = service.get_entities(df, 'Aggregate Region')
+        world_snapshot = service.build_world_snapshot(df, columns)
+
+        self.assertIn('Afghanistan', countries)
+        self.assertIn('Africa', aggregates)
+        self.assertIn('Africa', AGGREGATE_REGION_NAMES)
+        self.assertEqual(service.classify_entity(WORLD_ENTITY_NAME), 'World')
+        self.assertAlmostEqual(world_snapshot['world_supply'], 100.0)
