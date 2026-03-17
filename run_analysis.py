@@ -4,8 +4,6 @@ import argparse
 import logging
 from pathlib import Path
 
-from src.analysis_pipeline import AnalysisPipeline
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the energy analytics workflow.")
@@ -24,6 +22,16 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    try:
+        from src.analysis_pipeline import AnalysisPipeline
+    except ModuleNotFoundError as exc:
+        if exc.name and exc.name.startswith("sklearn"):
+            raise SystemExit(
+                "scikit-learn is required for `run_analysis.py`. Install dependencies with "
+                "`python -m pip install -r requirements.txt`."
+            ) from exc
+        raise
+
     args = parse_args()
     pipeline = AnalysisPipeline(data_url=args.data_url, output_dir=Path(args.output))
     results = pipeline.run()

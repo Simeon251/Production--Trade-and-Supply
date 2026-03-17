@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 import logging
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ class FeatureEngineer:
     """Create derived features and keep a lightweight transformation audit trail."""
 
     df: pd.DataFrame
-    scaler: StandardScaler | None = field(default=None, init=False)
+    scaler: Any = field(default=None, init=False)
     feature_log: dict[str, str] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
@@ -58,12 +58,20 @@ class FeatureEngineer:
         logger.info("Created %s engineered features", len(self.feature_log))
         return self.df.copy()
 
-    def scale_numeric(self, numeric_cols: list[str]) -> tuple[pd.DataFrame, StandardScaler | None]:
+    def scale_numeric(self, numeric_cols: list[str]) -> tuple[pd.DataFrame, Any]:
         """Standardize selected columns and return the transformed dataframe."""
         existing_columns = [column for column in numeric_cols if column in self.df.columns]
         if not existing_columns:
             logger.warning("No matching numeric columns were provided for scaling")
             return self.df.copy(), None
+
+        try:
+            from sklearn.preprocessing import StandardScaler
+        except ModuleNotFoundError as exc:
+            raise ModuleNotFoundError(
+                "scikit-learn is required for numeric scaling. "
+                "Install dependencies with `python -m pip install -r requirements.txt`."
+            ) from exc
 
         self.scaler = StandardScaler()
         self.df.loc[:, existing_columns] = self.scaler.fit_transform(self.df[existing_columns])

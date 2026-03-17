@@ -5,7 +5,6 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LinearRegression
 
 from .data_processor import DataProcessor
 from .feature_engineer import FeatureEngineer
@@ -120,13 +119,9 @@ class BusinessDashboardService:
         if len(history) < 3:
             return history
 
-        X = history[['Year']]
-        y = history[metric_label]
-        model = LinearRegression()
-        model.fit(X, y)
-
         future_years = np.arange(history['Year'].max() + 1, history['Year'].max() + horizon + 1)
-        forecast_values = model.predict(pd.DataFrame({'Year': future_years}))
+        coefficients = np.polyfit(history['Year'].to_numpy(), history[metric_label].to_numpy(), deg=1)
+        forecast_values = np.polyval(coefficients, future_years)
         forecast_df = pd.DataFrame({
             'Year': future_years,
             metric_label: forecast_values,
