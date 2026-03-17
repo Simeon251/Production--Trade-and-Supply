@@ -1,34 +1,65 @@
-# Energy Production, Trade, and Supply Analysis
+# Energy Outlook Navigator
 
-Predictive analytics workflow for the United Nations energy production, trade, and supply dataset. The project now pulls fresh data from the official UN remote endpoint at runtime instead of relying on a committed local CSV snapshot.
+Energy Outlook Navigator is a business-oriented Streamlit application that helps teams quickly understand the present state and likely near-term direction of country energy systems using official United Nations energy data.
 
-## What Changed
+It is designed for strategy, market scanning, policy review, investment research, and executive reporting. Users can open the dashboard, choose a country, review the latest energy position, inspect historical performance, and view simple forward-looking projections. They can also get a fast global snapshot to see how world energy trends are shifting.
 
-- Fetches the source dataset over HTTP from the official UN data endpoint.
-- Keeps the cleaned modeling pipeline and holdout-based evaluation flow.
-- Writes a machine-readable summary to `results/analysis_summary.json`.
-- Uses mocked network responses in tests so the test suite stays fast and deterministic.
+## Business Purpose
 
-## Quick Start
+This project helps decision-makers answer questions such as:
+
+- How much energy supply does a country currently have?
+- Is the country behaving more like a net importer or exporter?
+- How are production, imports, and per-capita supply changing over time?
+- What does a simple directional forecast suggest for the next few years?
+- Which countries currently lead world energy supply?
+- What broad world trend should an executive notice immediately?
+
+## What Users Can Do
+
+- View a global executive dashboard with world supply, average per-capita supply, importer share, and country coverage.
+- Explore any country in the dataset and see its latest energy indicators.
+- Review country history through trend charts.
+- Generate quick directional forecasts for core metrics.
+- Compare countries through a latest-year global ranking table.
+- Pull fresh data from the official UN source at runtime.
+
+## Main Experience
+
+The Streamlit app includes three business views:
+
+1. Executive Overview
+   World headline metrics and a quick global trend snapshot.
+2. Country Explorer
+   Current-country snapshot, historical trends, and simple forecast outlooks.
+3. World Trends
+   Global time series and latest rankings for a fast market scan.
+
+## Run The Dashboard
 
 ```bash
 python -m pip install -r requirements.txt
+streamlit run streamlit_app.py
+```
+
+## Command-Line Analysis
+
+If you still want the original model-comparison workflow, you can run:
+
+```bash
 python run_analysis.py
 ```
 
-Optionally override the source URL:
+## Data Source
 
-```bash
-python run_analysis.py --data-url "https://data.un.org/_Docs/SYB/CSV/SYB68_263_202511_Production%2C%20Trade%20and%20Supply%20of%20Energy.csv"
-```
+The application downloads the latest compatible UN energy dataset at runtime. You can override the remote source with `--data-url` in the CLI flow or by editing the sidebar input in the Streamlit app.
 
-## Development
+## Important Forecast Note
+
+The forecasts in the dashboard are simple linear trend projections built for fast business scanning. They are useful for directional planning, but they are not a substitute for a full econometric or scenario-based forecasting model.
+
+## Testing
 
 ```bash
 python -m unittest discover -s tests
 ```
-
-## Notes
-
-- The pipeline tries the current official UN CSV URL first and falls back to the previous official release if needed.
-- You can also set `UN_ENERGY_DATA_URL` to point at a different compatible remote source.

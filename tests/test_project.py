@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.analysis_pipeline import AnalysisPipeline
+from src.business_dashboard import BusinessDashboardService
 from src.data_processor import DataProcessor
 from src.feature_engineer import FeatureEngineer
 
@@ -109,3 +110,18 @@ class PipelineTests(unittest.TestCase):
         self.assertIn('comparison', results['hypothesis_2'])
 
         shutil.rmtree(output_dir)
+
+
+class DashboardServiceTests(unittest.TestCase):
+    @patch('src.data_processor.urlopen')
+    def test_dashboard_forecast_and_snapshot(self, mock_urlopen) -> None:
+        mock_urlopen.return_value = MockHttpResponse(SAMPLE_RAW_CSV)
+        service = BusinessDashboardService('https://example.com/energy.csv')
+        df, columns, _ = service.load_data()
+        snapshot = service.build_country_snapshot(df, columns, 'Afghanistan')
+        forecast = service.forecast_country_metric(df, 'Afghanistan', 'Total Supply', columns['supply'], horizon=3)
+        world = service.build_world_snapshot(df, columns)
+
+        self.assertEqual(snapshot['country'], 'Afghanistan')
+        self.assertIn('Forecast', forecast['Type'].values)
+        self.assertEqual(world['countries_covered'], 2)
